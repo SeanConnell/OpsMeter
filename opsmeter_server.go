@@ -2,9 +2,16 @@ package main
 
 import (
     "github.com/hoisie/web"
+    "github.com/tarm/goserial"
     "bytes"
     "io"
+    "log"
 )
+
+/*
+Runs a small webserver that communicates with an embedded lighting controller.
+TODO:Dont' do so many syscalls for files everywhere, do it once and hold state
+*/
 
 //Tell the device to reset itself
 //TODO implement
@@ -22,6 +29,26 @@ func output_state(ctx *web.Context) string {
     return state 
 }   
 
+//Used to handle getting input data to set 
+//TODO implement
+func input_data(ctx *web.Context) { 
+    retval := "Input: "
+    for k,v := range ctx.Params {
+        retval = retval + k + "->" + v + ","
+    }
+    var buf bytes.Buffer
+    buf.WriteString(retval)
+    c := &serial.Config{Name:"/dev/ttyACM0", Baud:115200}
+    s, err := serial.OpenPort(c)
+    defer s.Close()
+    if err!= nil {
+        log.Fatal(err)
+    }
+    s.Write([]byte("test"))
+
+    io.Copy(ctx, &buf)
+}   
+
 //Display a help message to a user about how to interact with this service
 func commands_index(ctx *web.Context) string { 
     var commands = 
@@ -37,18 +64,6 @@ func commands_index(ctx *web.Context) string {
     "<br>" +
     "<i>Created and maintained by connells</i>"
     return commands 
-}   
-
-//Used to handle getting input data to set 
-//TODO implement
-func input_data(ctx *web.Context) { 
-    retval := "Input: "
-    for k,v := range ctx.Params {
-        retval = retval + k + "->" + v + ","
-    }
-    var buf bytes.Buffer
-    buf.WriteString(retval)
-    io.Copy(ctx, &buf)
 }   
 
 //Setup handlers for different addresses and HTTP methods here
