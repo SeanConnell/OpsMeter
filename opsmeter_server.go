@@ -1,76 +1,111 @@
 package main
 
 import (
-    "github.com/hoisie/web"
-    "github.com/tarm/goserial"
-    "bytes"
-    "io"
-    "log"
+	"bytes"
+	"github.com/hoisie/web"
+	"github.com/tarm/goserial"
+	"io"
+	"log"
+	"errors"
 )
 
 /*
 Runs a small webserver that communicates with an embedded lighting controller.
-TODO:Dont' do so many syscalls for files everywhere, do it once and hold state
 */
 
+//TODO: make this format a packet with data in the format COMMAND\r[DATA BYTES]
+func send(command string, serial io.ReadWriteCloser) {
+	serial.Write([]byte(command + "\r"))
+}
+
+func recieve(size int, serial io.ReadWriteCloser) ([]byte , error){
+	b := make([]byte, size)
+	n, err := serial.Read(b)
+	//don't handle reading fewer bytes than expected for now
+	if n < size {
+		return nil, errors.New("Read fewer than expected number of bytes");
+	}
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
 //Tell the device to reset itself
-//TODO implement
-func reset(ctx *web.Context) string { 
-    var message = 
-    "TODO: Reset device"
-    return message 
+//TODO implement error checking
+func reset(ctx *web.Context, serial io.ReadWriteCloser) string {
+	send("RESET", serial)
+	retval := "RESET sent\n"
+	var buf bytes.Buffer
+	buf.WriteString(retval)
+	io.Copy(ctx, &buf)
+	return "TODO verify response"
 }
 
 //Get state from device and display it
 //TODO implement
-func output_state(ctx *web.Context) string { 
-    var state = 
-    "TODO: communicate with device"
-    return state 
-}   
+func output_state(ctx *web.Context) string {
+	var state = "TODO: communicate with device"
+	return state
+}
 
 //Used to handle getting input data to set 
 //TODO implement
-func input_data(ctx *web.Context) { 
-    retval := "Input: "
-    for k,v := range ctx.Params {
-        retval = retval + k + "->" + v + ","
-    }
-    var buf bytes.Buffer
-    buf.WriteString(retval)
-    c := &serial.Config{Name:"/dev/ttyACM0", Baud:115200}
-    s, err := serial.OpenPort(c)
-    defer s.Close()
-    if err!= nil {
-        log.Fatal(err)
-    }
-    s.Write([]byte("test"))
+func input_data(ctx *web.Context, serial io.ReadWriteCloser) {
+	retval := "SETOUPUTDATA: "
+	for k, v := range ctx.Params {
+		retval += k + "->" + v + ","
+	}
+	retval += "\n"
+	var buf bytes.Buffer
+	buf.WriteString(retval)
+	send("SETOUTPUTDATA", serial)
+	io.Copy(ctx, &buf)
+}
 
-    io.Copy(ctx, &buf)
-}   
+//Abstract/encapsulate library for serial usage
+func initialize_serial(name string, baud int) (io.ReadWriteCloser, error) {
+	c := &serial.Config{Name: name, Baud: baud}
+	s, err := serial.OpenPort(c)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
 
 //Display a help message to a user about how to interact with this service
-func commands_index(ctx *web.Context) string { 
-    var commands = 
-    "Commands index for <b>OPS LIGHTS</b>" +
-    "<ul>" + 
-    "<li>POST to /SETOUTPUT with 32 3-tuples of 8 bit [R,G,B] values in a format like:<br>"+
-    "    0R=138&0G=12&0B=241&1R=23& etc ...<br>" +
-    "    Any values not set will remain in their previous state.</li>" +
-    "<li>POST to /RESET will send a reset command to the light controller and reset state.</li>" +
-    "<li>GET to /STATE will read device state and display it here.</li>" +
-    "<li>GET to /* (anything but /STATE) will display this command list.</li>" +
-    "</ul>" +
-    "<br>" +
-    "<i>Created and maintained by connells</i>"
-    return commands 
-}   
+func commands_index(ctx *web.Context) string {
+	var commands = "Commands index for <b>OPS LIGHTS</b>" +
+		"<ul>" +
+		"<li>POST to /SETOUTPUT with 32 3-tuples of 8 bit [R,G,B] values in a format like:<br>" +
+		"    0R=138&0G=12&0B=241&1R=23& etc ...<br>" +
+		"    Any values not set will default to 0,0,0 eg black.</li>" +
+		"<li>POST to /RESET will send a reset command to the light controller and reset state.</li>" +
+		"<li>GET to /STATE will read device state and display it here.</li>" +
+		"<li>GET to /* (anything but /STATE) will display this command list.</li>" +
+		"</ul>" +
+		"<br>" +
+		"<i>Created and maintained by connells</i>"
+	return commands
+}
 
 //Setup handlers for different addresses and HTTP methods here
 func main() {
-    web.Get("/STATE", output_state) //Get state from device and return it
-    web.Get("/.*", commands_index) //Get help
-    web.Post("/SETOUTPUT", input_data) //Set the output of the device
-    web.Post("/RESET", reset) //Reset device
-    web.Run("0.0.0.0:9999")
+	//setup serial for use
+	s, err := initialize_serial("/dev/ttyACM0", 115200)
+	if err != nil {
+		log.Fatal("Couldn't open comm port. ", err)
+	}
+	defer s.Close()
+
+	//close over lower level function to prevent reinitialization of serial port
+	send_input_data := func(ctx *web.Context) { input_data(ctx, s) }
+	send_reset := func(ctx *web.Context) { reset(ctx, s) }
+
+	//setup handlers for various commands/addresses
+	web.Get("/STATE", output_state)         //Get state from device and return it
+	web.Get("/.*", commands_index)          //Get help
+	web.Post("/SETOUTPUT", send_input_data) //Set the output of the device
+	web.Post("/RESET", send_reset)          //Reset device
+	web.Run("0.0.0.0:9999")
 }
