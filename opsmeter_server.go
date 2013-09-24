@@ -33,20 +33,23 @@ func recieve(size int, serial io.ReadWriteCloser) ([]byte , error){
 
 //Tell the device to reset itself
 //TODO implement error checking
-func reset(ctx *web.Context, serial io.ReadWriteCloser) string {
+func reset(ctx *web.Context, serial io.ReadWriteCloser) {
 	send("RESET", serial)
 	retval := "RESET sent\n"
 	var buf bytes.Buffer
 	buf.WriteString(retval)
 	io.Copy(ctx, &buf)
-	return "TODO verify response"
 }
 
 //Get state from device and display it
-//TODO implement
-func output_state(ctx *web.Context) string {
-	var state = "TODO: communicate with device"
-	return state
+func output_state(ctx *web.Context, serial io.ReadWriteCloser) {
+	send("GETSTATE", serial)
+	msg, err := recieve(96, serial)
+	if err != nil{
+		ctx.WriteString(err.Error())
+	} else {
+		ctx.WriteString(string(msg))
+	}
 }
 
 //Used to handle getting input data to set 
@@ -101,11 +104,12 @@ func main() {
 	//close over lower level function to prevent reinitialization of serial port
 	send_input_data := func(ctx *web.Context) { input_data(ctx, s) }
 	send_reset := func(ctx *web.Context) { reset(ctx, s) }
+	get_output_state := func(ctx *web.Context) {output_state(ctx, s) }
 
 	//setup handlers for various commands/addresses
-	web.Get("/STATE", output_state)         //Get state from device and return it
+	web.Get("/STATE", get_output_state)         //Get state from device and return it
 	web.Get("/.*", commands_index)          //Get help
-	web.Post("/SETOUTPUT", send_input_data) //Set the output of the device
-	web.Post("/RESET", send_reset)          //Reset device
-	web.Run("0.0.0.0:9999")
+	web.Put("/STATE", send_input_data) //Set the output of the device
+	web.Put("/RESET", send_reset)          //Reset device
+	web.Run("0.0.0.0:8089")
 }
