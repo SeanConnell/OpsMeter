@@ -6,7 +6,8 @@ import (
 	"github.com/tarm/goserial"
 	"io"
 	"log"
-	"errors"
+	"fmt"
+	"encoding/hex"
 )
 
 /*
@@ -23,7 +24,7 @@ func recieve(size int, serial io.ReadWriteCloser) ([]byte , error){
 	n, err := serial.Read(b)
 	//don't handle reading fewer bytes than expected for now
 	if n < size {
-		return nil, errors.New("Read fewer than expected number of bytes");
+		return nil, fmt.Errorf("Expected %v bytes and read %v instead", size, n)
 	}
 	if err != nil {
 		return nil, err
@@ -48,7 +49,8 @@ func output_state(ctx *web.Context, serial io.ReadWriteCloser) {
 	if err != nil{
 		ctx.WriteString(err.Error())
 	} else {
-		ctx.WriteString(string(msg))
+		out := hex.EncodeToString(msg)
+		ctx.WriteString(out)
 	}
 }
 
